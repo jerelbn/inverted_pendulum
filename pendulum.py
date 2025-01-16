@@ -8,18 +8,18 @@ SCREEN_HEIGHT = 500
 FPS = 60
 SCREEN_CENTER_X = SCREEN_WIDTH/2
 SCREEN_CENTER_Y = SCREEN_HEIGHT/2
-PIXELS_PER_METER = 70
+PIXELS_PER_METER = 100
 CENTER_DRAWING = False
 
-GRAVITY = 9.8
-MASS_CART = 10.0
-MASS_PENDULUM = 2.0
+GRAVITY = 9.81
+MASS_CART = 1.0
+MASS_PENDULUM = 0.1
 LINEAR_DRAG_COEFF = 0.1
 ANGULAR_DRAG_COEFF = 0.001
-CART_WIDTH = 0.4
-CART_HEIGHT = 0.2
-PENDULUM_LENGTH = 3.0
-PENDULUM_WIDTH = 0.1
+CART_WIDTH = 0.2
+CART_HEIGHT = 0.1
+PENDULUM_LENGTH = 1.0
+PENDULUM_WIDTH = 0.05
 INERTIA = MASS_PENDULUM * PENDULUM_LENGTH**2
 
 X_INIT = SCREEN_CENTER_X / PIXELS_PER_METER
@@ -27,10 +27,12 @@ DX_INIT = 0.0
 THETA_INIT = 0.0
 DTHETA_INIT = 0.0
 
-MAX_FORCE = 100.0
+MAX_FORCE = 50.0
 
 LQR_ERRX_MAX = 5.0
 LQR_RELINEARIZE_ERROR = 5.0 * pi / 180
+LQR_Q = diag([10, 1, 100, 1])
+LQR_R = array([[1]])
 
 BLACK = (0,0,0)
 WHITE = (255,255,255)
@@ -82,9 +84,7 @@ def dynamics(state, input):
   ddtheta = (-F*l*m*cos(theta) - M*c*dtheta - M*g*l*m*sin(theta) + b*dx*l*m*cos(theta) - c*dtheta*m - dtheta**2*l**2*m**2*sin(2*theta)/2 - g*l*m**2*sin(theta))/D
   return array([dx, ddx, dtheta, ddtheta])
 
-def compute_control_lqr(x_ref, theta_ref, state):
-  if not hasattr(compute_control_lqr, 'F_prev'):
-    compute_control_lqr.F_prev = 0.0
+def compute_control_lqr(x_ref, theta_ref, state, F_prev):
   if not hasattr(compute_control_lqr, 'K'):
     compute_control_lqr.K = None
 
@@ -110,7 +110,7 @@ def compute_control_lqr(x_ref, theta_ref, state):
   err_dtheta = dtheta_ref - dtheta
 
   if err_theta > LQR_RELINEARIZE_ERROR or compute_control_lqr.K is None:
-    F = compute_control_lqr.F_prev
+    F = F_prev
     D = J*M + J*m + M*l**2*m + l**2*m**2*sin(theta)**2
     A = array([[0, 1, 0, 0],
             [0, b*(-J - l**2*m)/D, l*m*(-l*m*(2*F*J + 2*F*l**2*m - 2*J*b*dx + 2*J*dtheta**2*l*m*sin(theta) - 2*b*dx*l**2*m + 2*c*dtheta*l*m*cos(theta) + 2*dtheta**2*l**3*m**2*sin(theta) + g*l**2*m**2*sin(2*theta))*sin(theta)*cos(theta) + D*(J*dtheta**2*cos(theta) - c*dtheta*sin(theta) + dtheta**2*l**2*m*cos(theta) + g*l*m*cos(2*theta)))/D**2, l*m*(2*J*dtheta*sin(theta) + c*cos(theta) + 2*dtheta*l**2*m*sin(theta))/D],
@@ -120,13 +120,10 @@ def compute_control_lqr(x_ref, theta_ref, state):
             [(J + l**2*m)/D],
             [0],
             [-l*m*cos(theta)/D]])
-    Q = diag([100, 1, 1000, 1])
-    R = array([[1]])
-    X = solve_continuous_are(A, B, Q, R)
-    K = inv(R) @ B.T @ X
+    X = solve_continuous_are(A, B, LQR_Q, LQR_R)
+    K = inv(LQR_R) @ B.T @ X
 
   F = float(K @ array([err_x, err_dx, err_theta, err_dtheta]))
-  compute_control_lqr.F_prev = max(min(F, MAX_FORCE), -MAX_FORCE)
   print('state: [%9.4f, %9.4f, %9.4f, %9.4f], err_x: %9.4f, err_theta: %9.4f, F: %9.4f' % (state[0], state[1], state[2], state[3], err_x, err_theta, F))
   return F
 
@@ -186,7 +183,7 @@ def main():
   while running:
     # Compute control input
     state[2] = wrap_angle(state[2])
-    input[0] = compute_control_lqr(x_ref, theta_ref, state)
+    input[0] = compute_control_lqr(x_ref, theta_ref, state, input[0])
     # input[0] = compute_control_energy(x_ref, theta_ref, state)
     input[0] = max(min(input[0], MAX_FORCE), -MAX_FORCE)
 
