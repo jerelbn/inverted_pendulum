@@ -163,10 +163,10 @@ def draw_pendulum(screen, state, state_ref):
 
   # Center cart on screen
   delta = 0
-  if x > 1.5 * SCREEN_CENTER_X:
-    delta = x - 1.5 * SCREEN_CENTER_X
-  if x < 0.5 * SCREEN_CENTER_X:
-    delta = x - 0.5 * SCREEN_CENTER_X
+  if x > 1.75 * SCREEN_CENTER_X:
+    delta = x - 1.75 * SCREEN_CENTER_X
+  if x < 0.25 * SCREEN_CENTER_X:
+    delta = x - 0.25 * SCREEN_CENTER_X
   x -= delta
   x_ref -= delta
 
@@ -210,10 +210,6 @@ def main():
     state[2] = wrap_angle(state[2])
     if abs(state[2] - pi) < CONTROL_SWITCH_ANGLE:
       input[0] = compute_control_lqr(state, state_ref, input[0])
-
-      # Adjust horizontal set point based on mouse position
-      mp = pg.mouse.get_pos()
-      state_ref[0] = mp[0] / PIXELS_PER_METER
     else:
       input[0] = compute_control_energy(state, state_ref)
 
@@ -233,6 +229,10 @@ def main():
         running = False
     if keys[pg.K_ESCAPE]:
       running = False
+    if keys[pg.K_UP]:
+      state_ref[0] += 0.5
+    if keys[pg.K_DOWN]:
+      state_ref[0] -= 0.5
     if keys[pg.K_LEFT]:
       state[2] -= 5.0 * pi / 180
     if keys[pg.K_RIGHT]:
