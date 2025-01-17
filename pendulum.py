@@ -1,7 +1,10 @@
+import time
 import pygame as pg
-from numpy import pi, sin, cos, array, sign, diag
+from numpy import pi, sin, cos, array, sign, diag, random
 from numpy.linalg import inv
 from scipy.linalg import solve_continuous_are
+
+random.seed(int(time.time()))
 
 SCREEN_WIDTH = 1500
 SCREEN_HEIGHT = 500
@@ -22,12 +25,13 @@ PENDULUM_LENGTH = 1.0
 PENDULUM_WIDTH = 0.05
 INERTIA = MASS_PENDULUM * PENDULUM_LENGTH**2
 
-X_INIT = SCREEN_CENTER_X / PIXELS_PER_METER
-DX_INIT = 0.0
-THETA_INIT = 0.0
-DTHETA_INIT = 0.0
+X_INIT = SCREEN_CENTER_X / PIXELS_PER_METER + random.uniform(-1.0, 1.0)
+DX_INIT = random.uniform(-0.1, 0.1)
+THETA_INIT = random.uniform(-pi/6, pi/6)
+DTHETA_INIT = random.uniform(-0.1, 0.1)
 
 MAX_FORCE = 50.0
+CONTROL_SWITCH_ANGLE = 30.0 * pi / 180
 
 LQR_ERRX_MAX = 5.0
 LQR_RELINEARIZE_ERROR = 5.0 * pi / 180
@@ -84,7 +88,7 @@ def dynamics(state, input):
   ddtheta = (-F*l*m*cos(theta) - M*c*dtheta - M*g*l*m*sin(theta) + b*dx*l*m*cos(theta) - c*dtheta*m - dtheta**2*l**2*m**2*sin(2*theta)/2 - g*l*m**2*sin(theta))/D
   return array([dx, ddx, dtheta, ddtheta])
 
-def compute_control_lqr(x_ref, theta_ref, state, F_prev):
+def compute_control_lqr(state, state_ref, F_prev):
   if not hasattr(compute_control_lqr, 'K'):
     compute_control_lqr.K = None
 
@@ -101,8 +105,10 @@ def compute_control_lqr(x_ref, theta_ref, state, F_prev):
   theta = state[2]
   dtheta = state[3]
 
-  dx_ref = 0.0
-  dtheta_ref = 0.0
+  x_ref = state_ref[0]
+  dx_ref = state_ref[1]
+  theta_ref = state_ref[2]
+  dtheta_ref = state_ref[3]
 
   err_x = max(min(x_ref - x, LQR_ERRX_MAX), -LQR_ERRX_MAX)
   err_dx = dx_ref - dx
@@ -123,11 +129,11 @@ def compute_control_lqr(x_ref, theta_ref, state, F_prev):
     X = solve_continuous_are(A, B, LQR_Q, LQR_R)
     K = inv(LQR_R) @ B.T @ X
 
-  F = float(K @ array([err_x, err_dx, err_theta, err_dtheta]))
-  print('state: [%9.4f, %9.4f, %9.4f, %9.4f], err_x: %9.4f, err_theta: %9.4f, F: %9.4f' % (state[0], state[1], state[2], state[3], err_x, err_theta, F))
+  F = (K @ array([err_x, err_dx, err_theta, err_dtheta]))[0]
+  # print('state: [%9.4f, %9.4f, %9.4f, %9.4f], err_x: %9.4f, err_theta: %9.4f, F: %9.4f' % (state[0], state[1], state[2], state[3], err_x, err_theta, F))
   return F
 
-def compute_control_energy(x_ref, theta_ref, state):
+def compute_control_energy(state, state_ref):
   g = GRAVITY
   m = MASS_PENDULUM
   J = INERTIA
@@ -140,9 +146,15 @@ def compute_control_energy(x_ref, theta_ref, state):
   E = 0.5 * (J + m * l ** 2) * dtheta ** 2 + m * g * l * (1 - cos(theta))
   E_tilde = E - E_ref
 
-  k = 10000.0
-  F = k * E_tilde * sign(dtheta * cos(theta) + 1e-9)
-  print('state: [%9.4f, %9.4f, %9.4f, %9.4f], E: %9.4f, F: %9.4f' % (state[0], state[1], state[2], state[3], E, F))
+  k = 100
+  kx = 10
+
+  F_energy = k * E_tilde * sign(dtheta * cos(theta) + 1e-9)
+  F_x = kx * (state_ref[0] - state[0])
+  F = F_energy + F_x
+
+  # print('F_energy: %9.4f, F_x: %9.4f' % (F_energy, F_x))
+  # print('state: [%9.4f, %9.4f, %9.4f, %9.4f], E: %9.4f, F: %9.4f' % (state[0], state[1], state[2], state[3], E, F))
 
   return F
 
@@ -150,7 +162,7 @@ def compute_control_energy(x_ref, theta_ref, state):
 def draw_pendulum(screen, x, y, theta, x_ref):
   # Center cart on screen
   if CENTER_DRAWING:
-    xp = SCREEN_CENTER_X
+    x = SCREEN_CENTER_X
 
   # Cart
   cw = int(PIXELS_PER_METER * CART_WIDTH)
@@ -165,7 +177,7 @@ def draw_pendulum(screen, x, y, theta, x_ref):
   pg.draw.line(screen, GREEN, start_pos=(x, y), end_pos=(xp, yp), width=pw)
 
   # Control point
-  pg.draw.line(screen, CYAN, start_pos=(int(x), SCREEN_CENTER_Y), end_pos=(int(x_ref), SCREEN_CENTER_Y), width=2)
+  pg.draw.line(screen, CYAN, start_pos=(int(x), SCREEN_CENTER_Y), end_pos=(int(x_ref), SCREEN_CENTER_Y), width=1)
   pg.draw.circle(screen, CYAN, (int(x_ref), SCREEN_CENTER_Y), 3)
 
 def main():
@@ -175,16 +187,21 @@ def main():
   clock = pg.time.Clock()
 
   state = array([X_INIT, DX_INIT, THETA_INIT, DTHETA_INIT])
-  x_ref = SCREEN_CENTER_X / PIXELS_PER_METER
-  theta_ref = pi
+  state_ref = array([SCREEN_CENTER_X/PIXELS_PER_METER, 0, pi, 0])
   input = array([0.0])
 
   running = True
   while running:
     # Compute control input
     state[2] = wrap_angle(state[2])
-    input[0] = compute_control_lqr(x_ref, theta_ref, state, input[0])
-    # input[0] = compute_control_energy(x_ref, theta_ref, state)
+    if abs(state[2] - pi) < CONTROL_SWITCH_ANGLE:
+      input[0] = compute_control_lqr(state, state_ref, input[0])
+
+      # Adjust horizontal set point based on mouse position
+      mp = pg.mouse.get_pos()
+      state_ref[0] = mp[0] / PIXELS_PER_METER
+    else:
+      input[0] = compute_control_energy(state, state_ref)
     input[0] = max(min(input[0], MAX_FORCE), -MAX_FORCE)
 
     # Integrate dynamics
@@ -193,12 +210,8 @@ def main():
 
     # Drawing
     screen.fill(BLACK)
-    draw_pendulum(screen, state[0]*PIXELS_PER_METER, SCREEN_CENTER_Y, state[2], x_ref*PIXELS_PER_METER)
+    draw_pendulum(screen, state[0]*PIXELS_PER_METER, SCREEN_CENTER_Y, state[2], state_ref[0]*PIXELS_PER_METER)
     pg.display.flip()
-
-    # Adjust force applied to cart based on mouse position
-    mp = pg.mouse.get_pos()
-    x_ref = mp[0] / PIXELS_PER_METER
 
     # Handle key presses
     keys = pg.key.get_pressed()
