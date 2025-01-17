@@ -12,7 +12,6 @@ FPS = 60
 SCREEN_CENTER_X = SCREEN_WIDTH/2
 SCREEN_CENTER_Y = SCREEN_HEIGHT/2
 PIXELS_PER_METER = 100
-CENTER_DRAWING = False
 
 GRAVITY = 9.81
 MASS_CART = 1.0
@@ -155,10 +154,21 @@ def compute_control_energy(state, state_ref):
   return F
 
 # Inputs in pixels
-def draw_pendulum(screen, x, y, theta, x_ref):
+def draw_pendulum(screen, state, state_ref):
+  # Unpack data
+  x = state[0] * PIXELS_PER_METER
+  y = SCREEN_CENTER_Y
+  theta = state[2]
+  x_ref = state_ref[0] * PIXELS_PER_METER
+
   # Center cart on screen
-  if CENTER_DRAWING:
-    x = SCREEN_CENTER_X
+  delta = 0
+  if x > 1.5 * SCREEN_CENTER_X:
+    delta = x - 1.5 * SCREEN_CENTER_X
+  if x < 0.5 * SCREEN_CENTER_X:
+    delta = x - 0.5 * SCREEN_CENTER_X
+  x -= delta
+  x_ref -= delta
 
   # Cart
   cw = int(PIXELS_PER_METER * CART_WIDTH)
@@ -175,6 +185,14 @@ def draw_pendulum(screen, x, y, theta, x_ref):
   # Control point
   pg.draw.line(screen, CYAN, start_pos=(int(x), SCREEN_CENTER_Y), end_pos=(int(x_ref), SCREEN_CENTER_Y), width=1)
   pg.draw.circle(screen, CYAN, (int(x_ref), SCREEN_CENTER_Y), 3)
+
+  # Draw state info
+  if not hasattr(draw_pendulum, 'font'):
+    draw_pendulum.font = pg.font.Font(None, 25)
+  screen.blit(draw_pendulum.font.render('x:      %8.3f' % state[0], False, WHITE), (10, 10))
+  screen.blit(draw_pendulum.font.render('dx:     %8.3f' % state[1], False, WHITE), (10, 30))
+  screen.blit(draw_pendulum.font.render('theta:  %8.3f' % (state[2]*180/pi), False, WHITE), (10, 50))
+  screen.blit(draw_pendulum.font.render('dtheta: %8.3f' % (state[3]*180/pi), False, WHITE), (10, 70))
 
 def main():
   pg.init()
@@ -205,7 +223,7 @@ def main():
 
     # Drawing
     screen.fill(BLACK)
-    draw_pendulum(screen, state[0]*PIXELS_PER_METER, SCREEN_CENTER_Y, state[2], state_ref[0]*PIXELS_PER_METER)
+    draw_pendulum(screen, state, state_ref)
     pg.display.flip()
 
     # Handle key presses
