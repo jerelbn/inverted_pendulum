@@ -24,7 +24,7 @@ PENDULUM_LENGTH = 1.0
 PENDULUM_WIDTH = 0.05
 INERTIA = MASS_PENDULUM * PENDULUM_LENGTH**2
 
-X_INIT = SCREEN_CENTER_X / PIXELS_PER_METER + random.uniform(-1.0, 1.0)
+X_INIT = random.uniform(-1.0, 1.0)
 DX_INIT = random.uniform(-0.1, 0.1)
 THETA_INIT = random.uniform(-pi/6, pi/6)
 DTHETA_INIT = random.uniform(-0.1, 0.1)
@@ -78,7 +78,7 @@ def dynamics(state, input):
   b = LINEAR_DRAG_COEFF
   c = ANGULAR_DRAG_COEFF
   l = PENDULUM_LENGTH
-  F = clip(input[0], -MAX_FORCE, MAX_FORCE)
+  F = input[0]
   dx = state[1]
   theta = state[2]
   dtheta = state[3]
@@ -142,10 +142,11 @@ def compute_control_energy(state, state_ref):
   E_tilde = E - E_ref
 
   k = 100
-  kx = 10
+  kxp = 10
+  kxd = 1
 
   F_energy = k * E_tilde * sign(dtheta * cos(theta) + 1e-9)
-  F_x = kx * (state_ref[0] - state[0])
+  F_x = kxp * (state_ref[0] - state[0]) - kxd * state[1]
   F = F_energy + F_x
 
   # print('F_energy: %9.4f, F_x: %9.4f' % (F_energy, F_x))
@@ -156,10 +157,10 @@ def compute_control_energy(state, state_ref):
 # Inputs in pixels
 def draw_pendulum(screen, state, state_ref):
   # Unpack data
-  x = state[0] * PIXELS_PER_METER
+  x = state[0] * PIXELS_PER_METER + SCREEN_CENTER_X
   y = SCREEN_CENTER_Y
   theta = state[2]
-  x_ref = state_ref[0] * PIXELS_PER_METER
+  x_ref = state_ref[0] * PIXELS_PER_METER + SCREEN_CENTER_X
 
   # Center cart on screen
   delta = 0
@@ -201,7 +202,7 @@ def main():
   clock = pg.time.Clock()
 
   state = array([X_INIT, DX_INIT, THETA_INIT, DTHETA_INIT])
-  state_ref = array([SCREEN_CENTER_X/PIXELS_PER_METER, 0, pi, 0])
+  state_ref = array([0, 0, pi, 0])
   input = array([0.0])
 
   running = True
@@ -212,6 +213,7 @@ def main():
       input[0] = compute_control_lqr(state, state_ref, input[0])
     else:
       input[0] = compute_control_energy(state, state_ref)
+    input[0] = clip(input[0], -MAX_FORCE, MAX_FORCE)
 
     # Integrate dynamics
     dt = 1.0 / FPS
@@ -230,9 +232,9 @@ def main():
     if keys[pg.K_ESCAPE]:
       running = False
     if keys[pg.K_UP]:
-      state_ref[0] += 0.5
+      state_ref[0] += 0.1
     if keys[pg.K_DOWN]:
-      state_ref[0] -= 0.5
+      state_ref[0] -= 0.1
     if keys[pg.K_LEFT]:
       state[2] -= 5.0 * pi / 180
     if keys[pg.K_RIGHT]:
