@@ -1,6 +1,6 @@
 import time
 import pygame as pg
-from numpy import pi, sin, cos, array, sign, diag, random
+from numpy import pi, sin, cos, array, sign, diag, random, clip
 from numpy.linalg import inv
 from scipy.linalg import solve_continuous_are
 
@@ -79,7 +79,7 @@ def dynamics(state, input):
   b = LINEAR_DRAG_COEFF
   c = ANGULAR_DRAG_COEFF
   l = PENDULUM_LENGTH
-  F = input[0]
+  F = clip(input[0], -MAX_FORCE, MAX_FORCE)
   dx = state[1]
   theta = state[2]
   dtheta = state[3]
@@ -89,9 +89,6 @@ def dynamics(state, input):
   return array([dx, ddx, dtheta, ddtheta])
 
 def compute_control_lqr(state, state_ref, F_prev):
-  if not hasattr(compute_control_lqr, 'K'):
-    compute_control_lqr.K = None
-
   g = GRAVITY
   M = MASS_CART
   m = MASS_PENDULUM
@@ -110,24 +107,23 @@ def compute_control_lqr(state, state_ref, F_prev):
   theta_ref = state_ref[2]
   dtheta_ref = state_ref[3]
 
-  err_x = max(min(x_ref - x, LQR_ERRX_MAX), -LQR_ERRX_MAX)
+  err_x = clip(x_ref - x, -LQR_ERRX_MAX, LQR_ERRX_MAX)
   err_dx = dx_ref - dx
   err_theta = angle_diff(theta_ref, theta)
   err_dtheta = dtheta_ref - dtheta
 
-  if err_theta > LQR_RELINEARIZE_ERROR or compute_control_lqr.K is None:
-    F = F_prev
-    D = J*M + J*m + M*l**2*m + l**2*m**2*sin(theta)**2
-    A = array([[0, 1, 0, 0],
-            [0, b*(-J - l**2*m)/D, l*m*(-l*m*(2*F*J + 2*F*l**2*m - 2*J*b*dx + 2*J*dtheta**2*l*m*sin(theta) - 2*b*dx*l**2*m + 2*c*dtheta*l*m*cos(theta) + 2*dtheta**2*l**3*m**2*sin(theta) + g*l**2*m**2*sin(2*theta))*sin(theta)*cos(theta) + D*(J*dtheta**2*cos(theta) - c*dtheta*sin(theta) + dtheta**2*l**2*m*cos(theta) + g*l*m*cos(2*theta)))/D**2, l*m*(2*J*dtheta*sin(theta) + c*cos(theta) + 2*dtheta*l**2*m*sin(theta))/D],
-            [0, 0, 0, 1],
-            [0, b*l*m*cos(theta)/D, l*m*(l*m*(2*F*l*m*cos(theta) + 2*M*c*dtheta + 2*M*g*l*m*sin(theta) - 2*b*dx*l*m*cos(theta) + 2*c*dtheta*m + dtheta**2*l**2*m**2*sin(2*theta) + 2*g*l*m**2*sin(theta))*sin(theta)*cos(theta) + D*(F*sin(theta) - M*g*cos(theta) - b*dx*sin(theta) - dtheta**2*l*m*cos(2*theta) - g*m*cos(theta)))/D**2, -(M*c + c*m + dtheta*l**2*m**2*sin(2*theta))/D]])
-    B = array([[0],
-            [(J + l**2*m)/D],
-            [0],
-            [-l*m*cos(theta)/D]])
-    X = solve_continuous_are(A, B, LQR_Q, LQR_R)
-    K = inv(LQR_R) @ B.T @ X
+  F = F_prev
+  D = J*M + J*m + M*l**2*m + l**2*m**2*sin(theta)**2
+  A = array([[0, 1, 0, 0],
+          [0, b*(-J - l**2*m)/D, l*m*(-l*m*(2*F*J + 2*F*l**2*m - 2*J*b*dx + 2*J*dtheta**2*l*m*sin(theta) - 2*b*dx*l**2*m + 2*c*dtheta*l*m*cos(theta) + 2*dtheta**2*l**3*m**2*sin(theta) + g*l**2*m**2*sin(2*theta))*sin(theta)*cos(theta) + D*(J*dtheta**2*cos(theta) - c*dtheta*sin(theta) + dtheta**2*l**2*m*cos(theta) + g*l*m*cos(2*theta)))/D**2, l*m*(2*J*dtheta*sin(theta) + c*cos(theta) + 2*dtheta*l**2*m*sin(theta))/D],
+          [0, 0, 0, 1],
+          [0, b*l*m*cos(theta)/D, l*m*(l*m*(2*F*l*m*cos(theta) + 2*M*c*dtheta + 2*M*g*l*m*sin(theta) - 2*b*dx*l*m*cos(theta) + 2*c*dtheta*m + dtheta**2*l**2*m**2*sin(2*theta) + 2*g*l*m**2*sin(theta))*sin(theta)*cos(theta) + D*(F*sin(theta) - M*g*cos(theta) - b*dx*sin(theta) - dtheta**2*l*m*cos(2*theta) - g*m*cos(theta)))/D**2, -(M*c + c*m + dtheta*l**2*m**2*sin(2*theta))/D]])
+  B = array([[0],
+          [(J + l**2*m)/D],
+          [0],
+          [-l*m*cos(theta)/D]])
+  X = solve_continuous_are(A, B, LQR_Q, LQR_R)
+  K = inv(LQR_R) @ B.T @ X
 
   F = (K @ array([err_x, err_dx, err_theta, err_dtheta]))[0]
   # print('state: [%9.4f, %9.4f, %9.4f, %9.4f], err_x: %9.4f, err_theta: %9.4f, F: %9.4f' % (state[0], state[1], state[2], state[3], err_x, err_theta, F))
@@ -202,7 +198,6 @@ def main():
       state_ref[0] = mp[0] / PIXELS_PER_METER
     else:
       input[0] = compute_control_energy(state, state_ref)
-    input[0] = max(min(input[0], MAX_FORCE), -MAX_FORCE)
 
     # Integrate dynamics
     dt = 1.0 / FPS
